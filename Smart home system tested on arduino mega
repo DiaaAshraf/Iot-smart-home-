@@ -1,0 +1,498 @@
+/*
+ * --------------------------------------------------------------------------------------------------------------------
+ *Smart Home System Using Arduino Mega/Uno
+ * --------------------------------------------------------------------------------------------------------------------
+ * The system is consist of
+ *
+ * 1-alarm system incase of fire or gas leakage
+ * 2-Security system using finger print reader
+ * 3-Automated door in case of identity verify
+ * 4-Automated lights depending of the motion in the home using pir sensors
+ * 5-Temperture and humadity  monitoring and control
+ *
+ * @author Diaa Ashraf 
+ *
+ * @license Released into the public domain.
+ *
+ * Typical pin layout used:
+ * -----------------------------------------------------------------------------------------
+ *                    
+ *                    .Function              Arduino
+ *                                           Mega
+ * Signal                                    Pin
+ * -----------------------------------------------------------------------------------------
+                     INPUTS
+ * SmokeSensor                                52
+ * FlameSensor                                50
+ * DHTPIN                                     48
+ * motionRoof                              46
+ * ldr1                                       A0
+ * ldr2                                       A1
+ * ldr3                                       A2
+ * ldr4                                       A3
+ * ldr5                                       A4
+                    PWM_OUTPUTS
+ * Door's Servo                               4
+ * insideServo                                5
+ * Aircondtoin                                6
+ * Solartrackservo1                           7
+ * Solartrackservo2                           8
+                    Digital_OUTPUTS
+
+ * pump                                       53
+ * kitchenbuzzer                              51
+ * keypadBuzzer                               49
+ *rooflight                                47
+ *  TX                                        3
+ *  RX                                        2
+ * keypad
+    g                                         23
+    f                                         25
+    e                                         27
+    d                                         29
+    c                                         31
+    b                                         33
+    a                                         35
+ */
+//----------------------------------------------Libraries Included in the system----------------------------------------//
+#include <Servo.h>                          //servo motor library
+#include "DHT.h"                            //temp sensor library l
+#include <Wire.h>                           //libraryForI2c communication
+#include <LiquidCrystal_I2C.h>              //i2c Lcd library
+#include <Keypad.h>                        //keypad library
+#include <EEPROM.h>                        //EEPROM libary for storing access data in arduino memory
+
+//-----------------------------------------------General Pins assign-----------------------------------------
+#define Aircondtoin      6                  //Aircondtoin control
+//keypadRows
+#define g                23
+#define O                25
+#define e                27
+#define d                29
+//keypadColumns
+#define c                31
+#define b                33
+#define a                35
+/////////
+#define motionRoof    46                 //kitchen motion sensor
+#define rooflight     47
+#define DHTPIN           48                 //temp sensor pin
+#define keypadBuzzer     49                 //insdeDooralarm
+#define FlameSensor      50                 //flame sensor pin
+#define kitchenbuzzer    51                 //kitchen buzzer pin
+#define SmokeSensor      52                 //smoke sensor pin
+#define pump             53                 //fire alarm pump control
+#define DHTTYPE DHT11                      //sensor type DHT 11
+/*
+#define ldr1 A0
+#mdefine ldr2 A1
+#define ldr3 A2
+#define ldr4 A3l
+#define ldr5 A4
+*/
+//-----------------------------------------------Library pins decelartion ----------------------------------------------//
+DHT dht(DHTPIN, DHTTYPE);           //assign sensor pin and type
+//SoftwareSerial mySerial(RX, TX);       //software serial library pins
+//Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial); //set serial interface port for finger print sensor
+Servo door;
+Servo insideServo;
+const byte ROWS = 4; //four rows
+const byte COLS = 3; //three columns
+char keys[ROWS][COLS] =
+  {
+  {1,2,3},
+  {4,5,6},
+  {7,8,9},
+  {'*',0,'#'}
+  };
+byte rowPins[ROWS] = {g, O, e, d}; //connect to the row pinouts of the keypad
+byte colPins[COLS] = {c, b, a}; //connect to the column pinouts of the keypad
+Keypad keypad = Keypad( makeKeymap(keys), rowPins, colPins, ROWS, COLS );
+LiquidCrystal_I2C lcd(0x27,16,2);  // set the LCD address to 0x20 for a 16 chars and 2 line display
+//Servo lightrack1;
+//Servo lightrack2;
+//-----------------------------------------------Varibles Declerations--------------------------------------------------//
+
+float temp;              //varible to hold temp sensor reading
+int smokevalue;          //varible for holding status of gas sensor
+int flamevalue ;         //varible for holding status of gas sensor
+int flag,count=0;
+int pos=70;
+int positon=0;
+
+unsigned long int var=0;
+unsigned long int var1=0;
+char x=0;
+unsigned long int our;
+unsigned long int user;
+char compare;
+char counter=0;
+int pos1      =   0;          // pos1 is horizontal position
+int pos2      =   0;          // pos2 is vertical position
+int right     =   0;          // right ldr
+int left      =   0;          // left ldr
+int centre    =   0;          // centre ldr
+int up        =   0;          // top ldr
+int down      =   0;          // bottom ldr
+//---------------------------------------keypad Read------------------------------------------------------//
+unsigned long int Keypad_read()
+{
+  var=0;
+   for (count=0;count<4;count++)
+      {  char key = keypad.getKey();
+        while(key==NO_KEY)
+          { key = keypad.getKey();
+
+
+
+          }
+           if (key=='#')
+             {var=0;
+              key=0;
+              count=0;
+             }
+           var=var*10+key;
+
+         lcd.clear();
+        lcd.setCursor(0, 0);
+        lcd.print(" enter the pass ");
+        lcd.setCursor(0, 1);
+        lcd.print(var);
+      }
+  return var;
+}
+//----------------------------------Keypad compare password-----------------------------------------------//
+char compare_pass(unsigned long int saved_pass,unsigned long int user_pass)
+{
+
+  if (saved_pass== user_pass)
+   x=1;
+   else
+      x=0;
+      return x;
+}
+//---------------------------------Keypad read password---------------------------------------------------//
+unsigned long int Read_pass ()
+{
+  int saved_pass;
+  saved_pass=EEPROM.read(0x00);
+  saved_pass=saved_pass*100+ EEPROM.read(0x01);
+  return saved_pass;
+}
+//------------------------------------Change password-----------------------------------------------------//
+
+void change_pass(unsigned long int pass)
+{
+  int ab;
+  ab=pass/100;
+  EEPROM.write(0x00,ab);
+  ab=pass%100;
+  EEPROM.write(0x01,ab);
+}
+
+//-----------------------------------keypad function-----------------------------------------------------//
+
+//---------------------------------kitchen Alarm System---------------------------------------------------//
+
+  void alarm(){
+      flamevalue = digitalRead(FlameSensor);
+        //Serial.println("flamsensor");
+        //Serial.print(flamevalue);
+        String A=String (flamevalue);
+        Serial1.print(A);
+        Serial.print(A);
+        Serial1.print(",");
+        Serial.print(",");
+if (flamevalue==0)digitalWrite(pump,LOW); else digitalWrite(pump,HIGH); 
+      smokevalue = digitalRead(SmokeSensor );
+        //Serial.println("smokevalue");
+        String B=String (smokevalue);
+        Serial1.print(B);
+        Serial.print(B);
+        Serial1.print(",");
+        Serial.print(",");
+          if(flamevalue==0||smokevalue==0) digitalWrite(keypadBuzzer,HIGH);
+          else  digitalWrite(keypadBuzzer,LOW);     
+  }
+
+//----------------------------------------Temperture Sensor reading in celcuis--------------------------------------------//
+
+  int  tempsensor()
+    {
+      int  t = dht.readTemperature();
+      float f = dht.readTemperature(false);
+          if(t<30) digitalWrite(Aircondtoin,LOW);
+          if (t>30&&t<35) analogWrite(Aircondtoin,90);
+          if (t>35&&t<40) analogWrite(Aircondtoin,180);
+          if (t>40) analogWrite(Aircondtoin,255);
+          String C=String (t);
+          Serial1.print(C);
+          Serial.print(C);
+          Serial1.println();
+          Serial.println();
+      return t;
+      }
+ //-----------------------------------------------------Light-----------------------------------------------------------//
+void light()
+{
+
+if(digitalRead(motionRoof)==1)digitalWrite(rooflight,HIGH);  
+else digitalWrite(rooflight,LOW); 
+}
+
+//------------------------------------------------Serial recive-------------------------------------------------------//
+/*
+if (Serial1.available()>0)
+{
+//str=Serial1.readStringUntil('\n');
+ inlight=Serial1.parseInt();
+delay(5);
+ smoke=Serial1.parseInt();
+delay(5);
+ temp=Serial1.parseInt();
+//Serial.print(str);
+//Serial.println(b);
+//Serial.print(c);
+delay(100);
+}
+}
+*/
+//-------------------------------------------Finger Print Authentication-----------------------------------------------//
+/*
+int getFingerprintIDez()
+{
+  uint8_t p = finger.getImage();
+  if (p != FINGERPRINT_OK)  return -1;
+  p = finger.image2Tz();
+  if (p != FINGERPRINT_OK)  return -1;
+  p = finger.fingerFastSearch();
+  if (p != FINGERPRINT_OK)  return -1;
+  // found a match!
+
+ // Serial.print("Found ID #"); Serial.print(finger.fingerID);
+  //Serial.print(" with confidence of "); Serial.println(finger.confidence);
+    door.write(90);
+    delay(10000);
+    door.write(0);
+    //return finger.fingerID;
+return 1;
+}
+*/
+//-----------------------------------------------Solar Tracker----------------------------------------------------//
+/*
+void Solartrack()
+ {
+
+   pos1=lightrack1.read();            // pos1 takes reading from current lightrack1 position
+   pos2=lightrack2.read();            // pos2 takes reading from current servo2 position
+   right=analogRead(ldr1);           // records reading from each LDRs
+   centre=analogRead(ldr2);
+   left=analogRead(ldr3);
+   up=analogRead(ldr4);
+   down=analogRead(ldr5);
+
+                  // this portion is to control horizontal position
+                  if(right > centre && left < centre)          // if right LDR has more light than centre LDR, and centre LDR has more light than left (means light is towards right)
+                  {
+                    lightrack1.write(pos1 +1);                    //increase position of lightrack1 by 1 (0 is left, 90 is centre, 180 is right)
+                    delay(10);                                // this delay is needed to prevent servo from going 0-180 without stopping
+                  }
+
+                  else if(left > centre && right < centre)      // if light is towards centre
+                  {
+                    lightrack1.write(pos1 -1);                    // decrease position of lightrack1 by 1 (0 is left, 90 is centre, 180 is right)
+                    delay(10);
+                  }
+
+                  else
+                  {
+                    lightrack1.write(pos1);                    // if neither condition is met, this means the panel is centre. Do not move panel
+                  }
+
+                 // this portion is to control vertical position
+                 if(up > centre && down < centre)
+                 {
+                   lightrack2.write(pos2 +1);
+                   delay(10);
+                 }
+
+                 else if(down > centre && up < centre)
+                 {
+                   lightrack2.write(pos2 -1);
+                   delay(10);
+                 }
+
+                 else
+                 {
+                   lightrack2.write(pos2);
+                 }
+        }
+*/
+
+//------------------------------------------------Program Setup-----------------------------------------------------//
+  void setup()
+  {
+
+   insideServo.attach(9);
+   insideServo.write(0);
+ //lightrack1.write(90);
+  //lightrack2.write(90);
+   Serial.begin(9600);
+  //finger.begin(57600);
+  Serial1.begin(9600);
+   dht.begin();
+   door.attach(4);
+ 
+ 
+ //lightrack1.attach(8);
+ //lightrack1.attach(9);
+//-------------/
+
+  pinMode(kitchenbuzzer,OUTPUT);
+  pinMode(keypadBuzzer,OUTPUT);
+  pinMode(pump,OUTPUT); 
+  
+  pinMode(FlameSensor,INPUT);
+  pinMode(SmokeSensor ,INPUT);
+  
+/*
+  pinMode(ldr1, INPUT);
+  pinMode(ldr2, INPUT);
+  pinMode(ldr3, INPUT);
+  pinMode(ldr4, INPUT);
+  pinMode(ldr5, INPUT);
+*/
+  //-----------System inital status-----------//
+ digitalWrite(kitchenbuzzer,LOW);
+  digitalWrite(keypadBuzzer,LOW);
+  digitalWrite(pump,HIGH); 
+ door.write(0);
+
+  lcd.init();                      // initialize the lcd 
+  // Print a message to the LCD.
+  lcd.backlight();
+  lcd.print("Hello, world!");
+   flag=EEPROM.read(0x10);
+  
+    //change pass for first time
+   if (flag!=10)
+  {
+     lcd.clear();
+    lcd.print ("enter pass 4 digits only");
+    for (count=0;count<4;count++)
+   { 
+     char kei = keypad.getKey();
+     while(kei==NO_KEY)
+        kei = keypad.getKey();
+     var1=var1*10+kei;
+     lcd.clear();
+     lcd.print ("enter pass 4 digits only");
+     lcd.setCursor(0, 1);
+     lcd.print(var1);
+   }
+   delay(200);
+     change_pass(var1);
+     EEPROM.write(0x10,10);
+   var= Read_pass ();
+   
+  lcd.clear();
+  lcd.print("your pass is!");
+  lcd.setCursor(0, 1);
+  // print the number of seconds since reset:
+  lcd.print(var);
+  }
+  lcd.clear();
+  lcd.print(" Enter The Pass ");
+  
+  our = Read_pass ();
+  key();
+  //.write(0);
+   
+  }
+/////////////////////////////////
+ void key()
+ {
+    start:
+     user = Keypad_read();
+     compare = compare_pass(our,user);
+     if (compare)
+     {
+      lcd.clear();
+       lcd.print("true");
+      right:
+       counter=0;
+       lcd.clear();
+       lcd.print("to open door #");
+       lcd.setCursor(0,1);
+       lcd.print("to change pass *");
+       char key = keypad.getKey();
+            while(key==NO_KEY)
+               key = keypad.getKey();
+               if (key=='#')
+                 {
+                   lcd.clear();
+                   lcd.print("ok");
+                   lcd.setCursor(0,1);
+                   lcd.print("welcome");
+                  
+                   insideServo.write(90);
+                   
+                 }
+                 
+                 else if (key=='*')
+                 {
+                     lcd.clear();
+                     lcd.print("the change code ");
+                     user = Keypad_read();
+                     if (user==3456){
+                            lcd.clear();
+                            lcd.print("the new pass is");
+                            user = Keypad_read();
+                            change_pass(user);
+                            lcd.clear();
+                            delay(2000);
+                            goto start;
+                             }
+                             else
+                             {
+                               lcd.clear();
+                               lcd.print("not right");
+                               delay(2000);
+                               goto right;
+                              }
+                  }
+
+     }
+     else
+     {
+       lcd.clear();
+       lcd.print("false, try again");
+       counter++;
+       if (counter <3)
+          goto start;
+          else
+           {
+             lcd.clear();
+               lcd.print("u r theif");
+               digitalWrite(keypadBuzzer,HIGH);
+             while(1);
+
+           }
+    }
+ }
+
+ 
+//------------------------------------------------Repeated loop----------------------------------------------------//
+
+////////////////////////
+ void loop()
+  {
+    //getFingerprintIDez();
+    //Solartrack();
+   alarm();
+    light();
+    tempsensor();
+ delay(200);
+
+  }
+  
